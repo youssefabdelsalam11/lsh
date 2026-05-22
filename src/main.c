@@ -9,12 +9,15 @@
   @brief        LSH (Libstephen SHell)
 
 *******************************************************************************/
-
+#define _GNU_SOURCE
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <string.h>
 
 /*
@@ -23,19 +26,30 @@
 int lsh_cd(char **args);
 int lsh_help(char **args);
 int lsh_exit(char **args);
-
+int lsh_pwd(char **args);
+int lsh_echo(char **args);
+int lsh_history(char **args);
+int lsh_env(char **args);
 /*
   List of builtin commands, followed by their corresponding functions.
- */
+*/
 char *builtin_str[] = {
   "cd",
   "help",
-  "exit"
+  "pwd", 
+  "echo",
+  "history",
+  "env",
+  "exit" 
 };
 
 int (*builtin_func[]) (char **) = {
   &lsh_cd,
   &lsh_help,
+  &lsh_pwd,
+  &lsh_echo,
+  &lsh_history,
+  &lsh_env,
   &lsh_exit
 };
 
@@ -81,6 +95,93 @@ int lsh_help(char **args)
   }
 
   printf("Use the man command for information on other programs.\n");
+  return 1;
+}
+
+/*
+    @Builtin command: print working directory.
+    @param args List of args.  Not examined.
+    @return Always returns 1, to continue executing.
+*/
+int lsh_pwd(char **args)
+{
+  char cwd[1024]; // buffer to store the path string
+  
+  
+  if (getcwd(cwd, sizeof(cwd)) != NULL) { // getcwd() fetches the current directory path and stores it in 'cwd' [cite: 14, 30]
+    printf("%s\n", cwd); // Print the path followed by a newline [cite: 30]
+  }
+  else {
+    perror("lsh: pwd error"); 
+  }
+  
+  return 1; // Return 1 to keep the shell main loop running 
+}
+
+/**
+   @brief Builtin command: print arguments.
+   @param args List of args.  args[0] is "echo".
+   @return Always returns 1, to continue executing.
+ */
+int lsh_echo(char **args)
+{
+  int i = 1; 
+  while (args[i] != NULL) { 
+    printf("%s ", args[i]); // print the argument followed by a space
+    i++;
+  }
+  printf("\n");
+  return 1; 
+}
+
+/*
+  @brief Builtin command: print environment variables.
+  @param args List of args.  Not examined.
+  @return Always returns 1, to continue executing.
+*/
+  int lsh_env(char **args)
+{
+  extern char **environ; 
+  int i = 0;
+  while (environ[i] != NULL) {
+    printf("%s\n", environ[i]);
+    i++;
+  }
+  return 1;
+}
+
+/**
+   @brief Builtin command: print command history.
+   @param args List of args.  Not examined.
+   @return Always returns 1, to continue executing.
+*/
+#define HISTORY_MAX_SIZE 100
+char *history_commands[HISTORY_MAX_SIZE];
+int history_count = 0;
+void add_to_history(char *line)
+{
+  if (line == NULL || strlen(line) <= 1) return;
+  
+  char *newline = strchr(line, '\n');
+  if (newline) *newline = '\0';
+
+  if (history_count < HISTORY_MAX_SIZE) {
+    history_commands[history_count] = strdup(line);
+    history_count++;
+  } 
+  else {
+    free(history_commands[0]); 
+    for (int i = 1; i < HISTORY_MAX_SIZE; i++) {
+      history_commands[i - 1] = history_commands[i];
+    }
+    history_commands[HISTORY_MAX_SIZE - 1] = strdup(line);
+  }
+}
+int lsh_history(char **args)
+{
+  for (int i = 0; i < history_count; i++) {
+    printf("%d: %s\n", i + 1, history_commands[i]);
+  }
   return 1;
 }
 
@@ -246,7 +347,7 @@ char **lsh_split_line(char *line)
 
 /**
    @brief Loop getting input and executing it.
- */
+ */      
 void lsh_loop(void)
 {
   char *line;
@@ -256,6 +357,9 @@ void lsh_loop(void)
   do {
     printf("> ");
     line = lsh_read_line();
+    if (line != NULL && strlen(line) > 1) {
+        add_to_history(line);
+    }
     args = lsh_split_line(line);
     status = lsh_execute(args);
 
